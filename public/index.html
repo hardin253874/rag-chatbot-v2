@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RAG Chatbot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #1a1a2e;
+      color: white;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    header h1 { font-size: 1.2rem; font-weight: 600; }
+    header span { font-size: 0.85rem; color: #aaa; }
+    .status-dot { width:10px;height:10px;border-radius:50%;background:#4caf50;margin-left:auto; }
+    .main { display:flex;flex:1;overflow:hidden; }
+    .sidebar {
+      width: 300px;
+      background: white;
+      border-right: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .sidebar h2 { font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#888; }
+    .ingest-section { display:flex;flex-direction:column;gap:8px; }
+    .ingest-section label { font-size:.85rem;color:#555; }
+    .ingest-section select {
+      width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;
+      font-size:.875rem;outline:none;transition:border .2s;background:white;cursor:pointer;
+    }
+    .ingest-section select:focus { border-color:#4f46e5; }
+    .llm-info {
+      font-size:.75rem;color:#888;background:#f9f9f9;border-radius:6px;
+      padding:6px 10px;line-height:1.5;display:none;
+    }
+    .llm-info.visible { display:block; }
+    .kb-panel { display:none; }
+    .kb-panel.active { display:contents; }
+    .sources-list {
+      font-size:.8rem;color:#555;background:#f9f9f9;border-radius:8px;
+      padding:10px;max-height:160px;overflow-y:auto;line-height:1.6;display:none;
+    }
+    .sources-list.visible { display:block; }
+    .sources-list .source-item { padding:2px 0;word-break:break-all; }
+    .sources-list .source-empty { color:#aaa;font-style:italic; }
+    .ingest-section input[type="text"],
+    .ingest-section input[type="file"] {
+      width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;
+      font-size:.875rem;outline:none;transition:border .2s;
+    }
+    .ingest-section input:focus { border-color:#4f46e5; }
+    .btn { padding:9px 16px;border:none;border-radius:8px;font-size:.875rem;font-weight:500;cursor:pointer;transition:background .2s,opacity .2s;width:100%; }
+    .btn-primary { background:#4f46e5;color:white; }
+    .btn-primary:hover { background:#4338ca; }
+    .btn-primary:disabled { opacity:.5;cursor:not-allowed; }
+    .btn-secondary { background:#f3f4f6;color:#374151; }
+    .btn-secondary:hover { background:#e5e7eb; }
+    .btn-danger { background:#fee2e2;color:#dc2626; }
+    .btn-danger:hover { background:#fecaca; }
+    .divider { border:none;border-top:1px solid #f0f0f0; }
+    .ingest-log {
+      font-size:.8rem;color:#555;background:#f9f9f9;border-radius:8px;
+      padding:10px;min-height:60px;max-height:140px;overflow-y:auto;line-height:1.6;
+    }
+    .log-success { color:#16a34a; }
+    .log-error   { color:#dc2626; }
+    .log-info    { color:#2563eb; }
+    .chat-area { flex:1;display:flex;flex-direction:column;overflow:hidden; }
+    .messages { flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px; }
+    .message { display:flex;flex-direction:column;max-width:75%;gap:4px; }
+    .message.user  { align-self:flex-end;align-items:flex-end; }
+    .message.bot   { align-self:flex-start;align-items:flex-start; }
+    .bubble {
+      padding:12px 16px;border-radius:16px;font-size:.9rem;line-height:1.6;
+      white-space:pre-wrap;word-break:break-word;
+    }
+    .message.user .bubble { background:#4f46e5;color:white;border-bottom-right-radius:4px; }
+    .message.bot .bubble  { background:white;color:#1a1a1a;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.08); }
+    .sources { font-size:.75rem;color:#888;padding:0 4px; }
+    .sources a { color:#4f46e5;text-decoration:none;word-break:break-all; }
+    .sources a:hover { text-decoration:underline; }
+    .thinking { display:flex;gap:4px;padding:12px 16px;background:white;border-radius:16px;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.08);width:fit-content; }
+    .thinking span { width:7px;height:7px;background:#aaa;border-radius:50%;animation:bounce 1.2s infinite; }
+    .thinking span:nth-child(2) { animation-delay:.2s; }
+    .thinking span:nth-child(3) { animation-delay:.4s; }
+    @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+    .input-bar { padding:16px 24px;background:white;border-top:1px solid #e0e0e0;display:flex;gap:10px; }
+    .input-bar input { flex:1;padding:12px 16px;border:1px solid #ddd;border-radius:24px;font-size:.9rem;outline:none;transition:border .2s; }
+    .input-bar input:focus { border-color:#4f46e5; }
+    .input-bar button { padding:12px 22px;background:#4f46e5;color:white;border:none;border-radius:24px;font-size:.9rem;font-weight:500;cursor:pointer;transition:background .2s; }
+    .input-bar button:hover { background:#4338ca; }
+    .input-bar button:disabled { opacity:.5;cursor:not-allowed; }
+    .empty-state { flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#aaa;gap:12px;user-select:none; }
+    .empty-state .icon { font-size:3rem; }
+    .empty-state p { font-size:.95rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>💬</div>
+  <div>
+    <h1>RAG Chatbot</h1>
+    <span>Local AI — powered by your documents</span>
+  </div>
+  <div class="status-dot" title="Server connected"></div>
+</header>
+
+<div class="main">
+  <aside class="sidebar">
+    <h2>Settings</h2>
+
+    <div class="ingest-section">
+      <label>Store</label>
+      <select id="vectorStoreSelect" onchange="switchKbPanel()">
+        <option value="local">Local (ChromaDB)</option>
+        <option value="cloud">Cloud (Pinecone)</option>
+      </select>
+    </div>
+
+    <div class="ingest-section">
+      <label>Query</label>
+      <select id="queryModeSelect" onchange="toggleLlmInfo()">
+        <option value="raw">Raw</option>
+        <option value="rewrite">Enhancement</option>
+      </select>
+      <div class="llm-info" id="llmInfo">Loading...</div>
+    </div>
+
+    <hr class="divider"/>
+
+    <!-- Local (ChromaDB) Knowledge Base -->
+    <div class="kb-panel active" id="kbLocal">
+      <h2>Knowledge Base — Local</h2>
+
+      <div class="ingest-section">
+        <label>Ingest a URL</label>
+        <input type="text" id="urlInputLocal" placeholder="https://example.com/article" />
+        <button class="btn btn-primary" onclick="ingestUrl('local')">Add URL</button>
+      </div>
+
+      <hr class="divider"/>
+
+      <div class="ingest-section">
+        <label>Upload a file (PDF, .txt, or .md)</label>
+        <input type="file" id="fileInputLocal" accept=".pdf,.txt,.md" />
+        <button class="btn btn-primary" onclick="ingestFile('local')">Upload File</button>
+      </div>
+
+      <hr class="divider"/>
+
+      <h2>Activity Log</h2>
+      <div class="ingest-log" id="ingestLogLocal">
+        <span class="log-info">Ready. Add documents to get started.</span>
+      </div>
+
+      <button class="btn btn-secondary" onclick="listResources('local')">List Resources</button>
+      <div class="sources-list" id="sourcesListLocal"></div>
+
+      <button class="btn btn-danger" onclick="resetKnowledgeBase('local')">Clear Local KB</button>
+    </div>
+
+    <!-- Cloud (Pinecone) Knowledge Base -->
+    <div class="kb-panel" id="kbCloud">
+      <h2>Knowledge Base — Cloud</h2>
+
+      <div class="ingest-section">
+        <label>Ingest a URL</label>
+        <input type="text" id="urlInputCloud" placeholder="https://example.com/article" />
+        <button class="btn btn-primary" onclick="ingestUrl('cloud')">Add URL</button>
+      </div>
+
+      <hr class="divider"/>
+
+      <div class="ingest-section">
+        <label>Upload a file (PDF, .txt, or .md)</label>
+        <input type="file" id="fileInputCloud" accept=".pdf,.txt,.md" />
+        <button class="btn btn-primary" onclick="ingestFile('cloud')">Upload File</button>
+      </div>
+
+      <hr class="divider"/>
+
+      <h2>Activity Log</h2>
+      <div class="ingest-log" id="ingestLogCloud">
+        <span class="log-info">Ready. Add documents to get started.</span>
+      </div>
+
+      <button class="btn btn-secondary" onclick="listResources('cloud')">List Resources</button>
+      <div class="sources-list" id="sourcesListCloud"></div>
+
+      <button class="btn btn-danger" onclick="resetKnowledgeBase('cloud')">Clear Cloud KB</button>
+    </div>
+  </aside>
+
+  <div class="chat-area">
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div class="icon">🤖</div>
+        <p>Ask a question about your documents</p>
+      </div>
+    </div>
+    <div class="input-bar">
+      <input
+        type="text"
+        id="questionInput"
+        placeholder="Ask a question..."
+        onkeydown="if(event.key==='Enter') sendMessage()"
+      />
+      <button id="sendBtn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API = 'http://localhost:3010';
+  let chatHistory = [];
+  let serverConfig = {};
+
+  // Load config from server and set defaults
+  (async function loadConfig() {
+    try {
+      const res = await fetch(`${API}/config`);
+      serverConfig = await res.json();
+      document.getElementById('vectorStoreSelect').value = serverConfig.vectorStore || 'local';
+      document.getElementById('queryModeSelect').value = serverConfig.queryMode === 'rewrite' ? 'rewrite' : 'raw';
+      switchKbPanel();
+      toggleLlmInfo();
+    } catch (e) {
+      console.warn('Failed to load config:', e);
+    }
+  })();
+
+  function getVectorStore() {
+    return document.getElementById('vectorStoreSelect').value;
+  }
+
+  function getQueryMode() {
+    return document.getElementById('queryModeSelect').value;
+  }
+
+  function switchKbPanel() {
+    const store = getVectorStore();
+    document.getElementById('kbLocal').classList.toggle('active', store === 'local');
+    document.getElementById('kbCloud').classList.toggle('active', store === 'cloud');
+  }
+
+  function toggleLlmInfo() {
+    const el = document.getElementById('llmInfo');
+    const mode = getQueryMode();
+    if (mode === 'rewrite') {
+      const model = serverConfig.rewriteLlm?.model || 'unknown';
+      const baseUrl = serverConfig.rewriteLlm?.baseUrl || 'unknown';
+      el.textContent = `Model: ${model}\nAPI: ${baseUrl}`;
+      el.classList.add('visible');
+    } else {
+      el.classList.remove('visible');
+    }
+  }
+
+  function log(store, msg, type = 'info') {
+    const logId = store === 'cloud' ? 'ingestLogCloud' : 'ingestLogLocal';
+    const el = document.getElementById(logId);
+    const line = document.createElement('div');
+    line.className = `log-${type}`;
+    line.textContent = `• ${msg}`;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function ingestUrl(store) {
+    const inputId = store === 'cloud' ? 'urlInputCloud' : 'urlInputLocal';
+    const url = document.getElementById(inputId).value.trim();
+    if (!url) return;
+    log(store, 'Ingesting URL...', 'info');
+    try {
+      const res = await fetch(`${API}/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, vectorStore: store })
+      });
+      const data = await res.json();
+      if (data.success) {
+        log(store, `Done: ${url}`, 'success');
+        document.getElementById(inputId).value = '';
+      } else {
+        log(store, `Error: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      log(store, `Failed: ${e.message}`, 'error');
+    }
+  }
+
+  async function ingestFile(store) {
+    const inputId = store === 'cloud' ? 'fileInputCloud' : 'fileInputLocal';
+    const fileInput = document.getElementById(inputId);
+    const file = fileInput.files[0];
+    if (!file) return;
+    log(store, `Uploading ${file.name}...`, 'info');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('vectorStore', store);
+    try {
+      const res = await fetch(`${API}/ingest`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (data.success) {
+        log(store, `Done: ${file.name}`, 'success');
+        fileInput.value = '';
+      } else {
+        log(store, `Error: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      log(store, `Failed: ${e.message}`, 'error');
+    }
+  }
+
+  async function resetKnowledgeBase(store) {
+    const label = store === 'cloud' ? 'Cloud (Pinecone)' : 'Local (ChromaDB)';
+    if (!confirm(`Clear the ${label} knowledge base? This cannot be undone.`)) return;
+    log(store, 'Clearing knowledge base...', 'info');
+    try {
+      const res = await fetch(`${API}/ingest/reset?vectorStore=${store}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        log(store, 'Knowledge base cleared.', 'success');
+        chatHistory = [];
+      } else {
+        log(store, `Error: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      log(store, `Failed: ${e.message}`, 'error');
+    }
+  }
+
+  async function listResources(store) {
+    const listId = store === 'cloud' ? 'sourcesListCloud' : 'sourcesListLocal';
+    const el = document.getElementById(listId);
+    el.innerHTML = '<div class="source-empty">Loading...</div>';
+    el.classList.add('visible');
+    try {
+      const res = await fetch(`${API}/ingest/sources?vectorStore=${store}`);
+      const data = await res.json();
+      if (data.success && data.sources.length > 0) {
+        el.innerHTML = data.sources
+          .map(s => `<div class="source-item">${s}</div>`)
+          .join('');
+      } else {
+        el.innerHTML = '<div class="source-empty">No resources found.</div>';
+      }
+    } catch (e) {
+      el.innerHTML = `<div class="source-empty">Error: ${e.message}</div>`;
+    }
+  }
+
+  function addMessage(role, text) {
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.remove();
+    const wrap = document.createElement('div');
+    wrap.className = `message ${role}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    document.getElementById('messages').appendChild(wrap);
+    return bubble;
+  }
+
+  function showThinking() {
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.remove();
+    const wrap = document.createElement('div');
+    wrap.className = 'message bot';
+    wrap.id = 'thinking';
+    const dots = document.createElement('div');
+    dots.className = 'thinking';
+    dots.innerHTML = '<span></span><span></span><span></span>';
+    wrap.appendChild(dots);
+    document.getElementById('messages').appendChild(wrap);
+    scrollToBottom();
+    return wrap;
+  }
+
+  function scrollToBottom() {
+    const el = document.getElementById('messages');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('questionInput');
+    const question = input.value.trim();
+    if (!question) return;
+
+    const sendBtn = document.getElementById('sendBtn');
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+
+    addMessage('user', question);
+    const thinking = showThinking();
+
+    let fullAnswer = '';
+
+    try {
+      const res = await fetch(`${API}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, history: chatHistory, vectorStore: getVectorStore(), queryMode: getQueryMode() })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let botBubble = null;
+      let buffer = '';
+
+      thinking.remove();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const json = JSON.parse(line.slice(6));
+
+          if (json.type === 'chunk') {
+            if (!botBubble) botBubble = addMessage('bot', '');
+            botBubble.textContent += json.text;
+            fullAnswer += json.text;
+            scrollToBottom();
+          }
+
+          if (json.type === 'sources' && json.sources.length > 0) {
+            const wrap = botBubble.parentElement;
+            const src = document.createElement('div');
+            src.className = 'sources';
+            src.innerHTML = '📄 Sources: ' + json.sources
+              .map(s => `<a href="${s}" target="_blank">${s}</a>`)
+              .join(', ');
+            wrap.appendChild(src);
+          }
+        }
+      }
+
+      // Store in memory for multi-turn
+      chatHistory.push({ role: 'user', content: question });
+      chatHistory.push({ role: 'assistant', content: fullAnswer });
+
+    } catch (e) {
+      thinking.remove();
+      addMessage('bot', `Error: ${e.message}`);
+    } finally {
+      input.disabled = false;
+      sendBtn.disabled = false;
+      input.focus();
+      scrollToBottom();
+    }
+  }
+</script>
+
+</body>
+</html>
